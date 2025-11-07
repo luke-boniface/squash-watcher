@@ -86,7 +86,9 @@ npm start
 
 ## Customizing Conditions
 
-The default condition checker is located in `src/conditions.ts`. You can modify it to check for your specific needs:
+⚠️ **IMPORTANT**: The default condition checker in `src/conditions.ts` is a placeholder that always returns `false`. You **must** customize it for your specific use case before the application will send any notifications.
+
+The condition checker is where you define what to look for on the website. You can modify it to check for your specific needs:
 
 ```typescript
 export async function defaultConditionChecker(page: Page): Promise<CheckResult> {
@@ -159,8 +161,9 @@ squash-watcher/
 |----------|-------------|---------|----------|
 | `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | - | Yes |
 | `TELEGRAM_CHAT_ID` | Your Telegram chat/channel ID | - | Yes |
-| `TARGET_URL` | Website URL to monitor | `https://example.com` | No |
+| `TARGET_URL` | Website URL to monitor | - | Yes |
 | `CHECK_INTERVAL` | Check interval in milliseconds | `300000` (5 min) | No |
+| `PAGE_TIMEOUT` | Page load timeout in milliseconds | `30000` (30 sec) | No |
 
 ## How It Works
 

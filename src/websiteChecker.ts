@@ -18,7 +18,7 @@ export class WebsiteChecker {
     console.log('Browser initialized');
   }
 
-  async checkWebsite(url: string, conditionChecker: ConditionChecker): Promise<CheckResult> {
+  async checkWebsite(url: string, conditionChecker: ConditionChecker, timeout: number = 30000): Promise<CheckResult> {
     if (!this.browser) {
       throw new Error('Browser not initialized. Call initialize() first.');
     }
@@ -27,7 +27,7 @@ export class WebsiteChecker {
     
     try {
       console.log(`Navigating to ${url}...`);
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
       
       const result = await conditionChecker(page);
       return result;

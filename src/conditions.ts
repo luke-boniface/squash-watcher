@@ -2,11 +2,14 @@ import { Page } from 'playwright';
 import { CheckResult } from './websiteChecker';
 
 /**
- * Default condition checker - checks if a specific text exists on the page.
- * This is a placeholder that can be customized later.
+ * Default condition checker - IMPORTANT: This is a placeholder implementation.
  * 
- * To customize, modify this function or create a new condition checker
- * following the same signature: (page: Page) => Promise<CheckResult>
+ * ⚠️  This always returns false and must be customized for your use case.
+ * 
+ * To use this application, modify this function to implement your specific
+ * condition checking logic. See examples below or in the README.
+ * 
+ * Expected signature: (page: Page) => Promise<CheckResult>
  */
 export async function defaultConditionChecker(page: Page): Promise<CheckResult> {
   try {
@@ -17,15 +20,15 @@ export async function defaultConditionChecker(page: Page): Promise<CheckResult> 
     // Example: Check if a specific element exists
     // const elementExists = await page.locator('selector').count() > 0;
     
-    // Placeholder condition - always returns false
-    // Replace with your actual condition
+    // ⚠️  PLACEHOLDER IMPLEMENTATION - Always returns false
+    // TODO: Replace with your actual condition
     const conditionMet = false;
     
     return {
       conditionMet,
       message: conditionMet 
         ? `Condition met! Page title: ${title}` 
-        : 'Condition not met yet',
+        : `Waiting for condition... (Page title: ${title})`,
     };
   } catch (error) {
     return {

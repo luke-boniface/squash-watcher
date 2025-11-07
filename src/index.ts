@@ -29,7 +29,11 @@ async function main() {
     const checkWebsite = async () => {
       console.log(`\n[${new Date().toISOString()}] Checking website...`);
       
-      const result = await checker.checkWebsite(config.targetUrl, defaultConditionChecker);
+      const result = await checker.checkWebsite(
+        config.targetUrl, 
+        defaultConditionChecker,
+        config.pageTimeout
+      );
       
       if (result.error) {
         console.error('Check failed:', result.error);
@@ -61,7 +65,11 @@ async function main() {
       console.log('\nShutting down...');
       clearInterval(intervalId);
       await checker.close();
-      await notifier.sendMessage('🛑 Squash Watcher stopped');
+      try {
+        await notifier.sendMessage('🛑 Squash Watcher stopped');
+      } catch (error) {
+        console.error('Failed to send shutdown notification:', error);
+      }
       process.exit(0);
     };
 
