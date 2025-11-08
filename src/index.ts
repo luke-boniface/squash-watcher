@@ -2,6 +2,8 @@ import { loadConfig } from './config';
 import { TelegramNotifier } from './telegram';
 import { WebsiteChecker } from './websiteChecker';
 import { defaultConditionChecker } from './conditions';
+import { StateManager } from './stateManager';
+import { createCourtAvailabilityChecker } from './courtConditions';
 
 async function main() {
   console.log('Starting Squash Watcher...');
@@ -18,45 +20,78 @@ async function main() {
   // Initialize services
   const notifier = new TelegramNotifier(config.telegramBotToken, config.telegramChatId);
   const checker = new WebsiteChecker();
+  const stateManager = new StateManager();
 
   try {
     await checker.initialize();
-    
+
     // Send startup notification
-    await notifier.sendMessage('🚀 Squash Watcher started and monitoring...');
+    const monitoringModes = [];
+    if (config.targetUrl) monitoringModes.push('website');
+    if (config.apiEnabled) monitoringModes.push('court API');
+    await notifier.sendMessage(
+      `🚀 Squash Watcher started!\n\nMonitoring: ${monitoringModes.join(' + ')}\n` +
+      `Check interval: ${config.checkInterval / 1000}s`
+    );
 
     // Main monitoring loop
-    const checkWebsite = async () => {
-      console.log(`\n[${new Date().toISOString()}] Checking website...`);
-      
-      const result = await checker.checkWebsite(
-        config.targetUrl, 
-        defaultConditionChecker,
-        config.pageTimeout
-      );
-      
-      if (result.error) {
-        console.error('Check failed:', result.error);
-        return;
-      }
-      
-      console.log('Check result:', result);
-      
-      if (result.conditionMet && result.message) {
-        console.log('✅ Condition met! Sending notification...');
-        await notifier.sendMessageWithMarkdown(
-          `✅ *Condition Met!*\n\n${result.message}\n\nURL: ${config.targetUrl}`
+    const performChecks = async () => {
+      console.log(`\n[${new Date().toISOString()}] Performing checks...`);
+
+      // Website monitoring (if enabled)
+      if (config.targetUrl) {
+        console.log('Checking website...');
+        const result = await checker.checkWebsite(
+          config.targetUrl,
+          defaultConditionChecker,
+          config.pageTimeout
         );
-      } else {
-        console.log('⏳ Condition not met yet');
+
+        if (result.error) {
+          console.error('Website check failed:', result.error);
+        } else if (result.conditionMet && result.message) {
+          console.log('✅ Website condition met! Sending notification...');
+          await notifier.sendMessageWithMarkdown(
+            `✅ *Condition Met!*\n\n${result.message}\n\nURL: ${config.targetUrl}`
+          );
+        } else {
+          console.log('⏳ Website condition not met');
+        }
+      }
+
+      // API monitoring (if enabled)
+      if (config.apiEnabled && config.facilityId) {
+        console.log('Checking court availability API...');
+        const courtChecker = createCourtAvailabilityChecker(
+          config.facilityId,
+          config.courtIds,
+          config.targetTimes,
+          config.daysToCheck,
+          stateManager
+        );
+
+        const result = await checker.checkWebsite(
+          'https://www.eversports.de', // Dummy URL, actual URLs built in checker
+          courtChecker,
+          config.pageTimeout
+        );
+
+        if (result.error) {
+          console.error('Court API check failed:', result.error);
+        } else if (result.conditionMet && result.message) {
+          console.log('✅ Court slots available! Sending notification...');
+          await notifier.sendMessageWithMarkdown(result.message);
+        } else {
+          console.log('⏳ No new court slots available', result.message || '');
+        }
       }
     };
 
     // Run initial check
-    await checkWebsite();
+    await performChecks();
 
     // Schedule periodic checks
-    const intervalId = setInterval(checkWebsite, config.checkInterval);
+    const intervalId = setInterval(performChecks, config.checkInterval);
     
     console.log(`Checking every ${config.checkInterval / 1000} seconds...`);
 
