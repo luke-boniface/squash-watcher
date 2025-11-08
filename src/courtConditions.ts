@@ -57,16 +57,25 @@ function formatDate(date: Date): string {
 }
 
 /**
- * Generate dates for checking (today + next N days)
+ * Generate dates for checking (today + next N days, excluding weekends)
  */
 function generateDates(daysToCheck: number): string[] {
   const dates: string[] = [];
   const today = new Date();
+  let daysAdded = 0;
+  let offset = 0;
 
-  for (let i = 0; i < daysToCheck; i++) {
+  while (daysAdded < daysToCheck) {
     const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    dates.push(formatDate(date));
+    date.setDate(today.getDate() + offset);
+
+    // 0 = Sunday, 6 = Saturday - skip weekends
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(formatDate(date));
+      daysAdded++;
+    }
+    offset++;
   }
 
   return dates;
@@ -114,20 +123,41 @@ export function createCourtAvailabilityChecker(
 
         const data: ApiResponse = JSON.parse(text);
 
-        // Find available slots at target times
-        for (const slot of data.slots) {
-          // Check if this is a target time and slot is available (booking is null)
-          if (targetTimes.includes(slot.start) && slot.booking === null) {
-            // Check if we've already notified about this slot
-            if (!stateManager.hasNotified(slot.date, slot.start, slot.court)) {
-              newlyAvailableSlots.push({
-                date: slot.date,
-                time: slot.start,
-                court: slot.court
-              });
+        // API returns BOOKED slots only, so we need to find courts NOT in the response
+        // Group booked courts by time (for the current date only)
+        const bookedCourtsByTime = new Map<string, Set<number>>();
 
-              // Mark as notified
-              stateManager.markNotified(slot.date, slot.start, slot.court);
+        for (const slot of data.slots) {
+          // Only consider slots for the current date being checked
+          if (slot.date === date && targetTimes.includes(slot.start)) {
+            if (!bookedCourtsByTime.has(slot.start)) {
+              bookedCourtsByTime.set(slot.start, new Set());
+            }
+            bookedCourtsByTime.get(slot.start)!.add(slot.court);
+          }
+        }
+
+        // For each target time, find available courts (courts NOT in API response)
+        for (const targetTime of targetTimes) {
+          const bookedCourts = bookedCourtsByTime.get(targetTime) || new Set();
+
+          // Available courts = all monitored courts - booked courts
+          for (const courtIdStr of courtIds) {
+            const courtId = parseInt(courtIdStr, 10);
+
+            // If court is NOT in the booked list, it's available
+            if (!bookedCourts.has(courtId)) {
+              // Check if we've already notified about this slot
+              if (!stateManager.hasNotified(date, targetTime, courtId)) {
+                newlyAvailableSlots.push({
+                  date: date,
+                  time: targetTime,
+                  court: courtId
+                });
+
+                // Mark as notified
+                stateManager.markNotified(date, targetTime, courtId);
+              }
             }
           }
         }

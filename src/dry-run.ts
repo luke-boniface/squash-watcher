@@ -1,5 +1,6 @@
 import { chromium, Browser, BrowserContext } from 'playwright';
 import { loadConfig } from './config';
+import { TelegramNotifier } from './telegram';
 
 interface CourtSlot {
   date: string;
@@ -35,11 +36,20 @@ function getDayName(dateStr: string): string {
 function generateDates(daysToCheck: number): string[] {
   const dates: string[] = [];
   const today = new Date();
+  let daysAdded = 0;
+  let offset = 0;
 
-  for (let i = 0; i < daysToCheck; i++) {
+  while (daysAdded < daysToCheck) {
     const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    dates.push(formatDate(date));
+    date.setDate(today.getDate() + offset);
+
+    // 0 = Sunday, 6 = Saturday - skip weekends
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(formatDate(date));
+      daysAdded++;
+    }
+    offset++;
   }
 
   return dates;
@@ -81,6 +91,9 @@ async function main() {
 
   let browser: Browser | null = null;
   let context: BrowserContext | null = null;
+
+  // Initialize Telegram notifier
+  const notifier = new TelegramNotifier(config.telegramBotToken, config.telegramChatId);
 
   try {
     // Initialize browser with Cloudflare bypass
@@ -133,14 +146,36 @@ async function main() {
 
         const data: ApiResponse = JSON.parse(text);
 
-        // Find available slots at target times
+        // API returns BOOKED slots only, so we need to find courts NOT in the response
+        // Group booked courts by time (for the current date only)
+        const bookedCourtsByTime = new Map<string, Set<number>>();
+
         for (const slot of data.slots) {
-          if (config.targetTimes.includes(slot.start) && slot.booking === null) {
-            allAvailableSlots.push({
-              date: slot.date,
-              time: slot.start,
-              court: slot.court
-            });
+          // Only consider slots for the current date being checked
+          if (slot.date === date && config.targetTimes.includes(slot.start)) {
+            if (!bookedCourtsByTime.has(slot.start)) {
+              bookedCourtsByTime.set(slot.start, new Set());
+            }
+            bookedCourtsByTime.get(slot.start)!.add(slot.court);
+          }
+        }
+
+        // For each target time, find available courts (courts NOT in API response)
+        for (const targetTime of config.targetTimes) {
+          const bookedCourts = bookedCourtsByTime.get(targetTime) || new Set();
+
+          // Available courts = all monitored courts - booked courts
+          for (const courtIdStr of config.courtIds) {
+            const courtId = parseInt(courtIdStr, 10);
+
+            // If court is NOT in the booked list, it's available
+            if (!bookedCourts.has(courtId)) {
+              allAvailableSlots.push({
+                date: date,
+                time: targetTime,
+                court: courtId
+              });
+            }
           }
         }
 
@@ -181,6 +216,10 @@ async function main() {
 
     const sortedDates = Array.from(slotsByDate.keys()).sort();
 
+    // Build Telegram message
+    let telegramMessage = `🎾 *COURT AVAILABILITY REPORT*\n\n`;
+    telegramMessage += `Found ${allAvailableSlots.length} available slot${allAvailableSlots.length > 1 ? 's' : ''}\n\n`;
+
     for (const date of sortedDates) {
       const dayName = getDayName(date);
       const isToday = date === formatDate(new Date());
@@ -189,22 +228,29 @@ async function main() {
       console.log(`📅 ${dateLabel}`);
       console.log('─'.repeat(80));
 
+      telegramMessage += `📅 *${dateLabel}*\n`;
+
       const timeMap = slotsByDate.get(date)!;
       const sortedTimes = Array.from(timeMap.keys()).sort();
 
       for (const time of sortedTimes) {
         const courtsSet = timeMap.get(time)!;
         const courts = Array.from(courtsSet).sort((a, b) => a - b);
-        console.log(`   🕐 ${formatTime(time)} - ${courts.length} court${courts.length > 1 ? 's' : ''} available`);
-        console.log(`      Courts: ${courts.join(', ')}`);
+        const courtText = `${courts.length} court${courts.length > 1 ? 's' : ''}`;
+
+        console.log(`   🕐 ${formatTime(time)} - ${courtText} available`);
+        telegramMessage += `   🕐 ${formatTime(time)} - ${courtText}\n`;
       }
 
       console.log('');
+      telegramMessage += '\n';
     }
 
     // Summary by time slot
     console.log('═'.repeat(80));
     console.log('\n📊 SUMMARY BY TIME SLOT\n');
+
+    telegramMessage += `📊 *SUMMARY*\n\n`;
 
     const slotsByTime = new Map<string, number>();
     for (const slot of allAvailableSlots) {
@@ -216,11 +262,23 @@ async function main() {
       const count = slotsByTime.get(time) || 0;
       const bar = '█'.repeat(Math.min(count, 50));
       console.log(`   ${formatTime(time)}: ${bar} ${count} slots`);
+      telegramMessage += `${formatTime(time)}: ${count} slot${count !== 1 ? 's' : ''}\n`;
     }
 
     console.log('\n');
     console.log('═'.repeat(80));
     console.log(`\n✨ Total: ${allAvailableSlots.length} available slots across ${sortedDates.length} days\n`);
+
+    telegramMessage += `\n✨ Total: ${allAvailableSlots.length} slots across ${sortedDates.length} days`;
+
+    // Send to Telegram
+    console.log('📱 Sending report to Telegram...\n');
+    try {
+      await notifier.sendMessageWithMarkdown(telegramMessage);
+      console.log('✅ Report sent to Telegram successfully\n');
+    } catch (error) {
+      console.error('❌ Failed to send Telegram notification:', error instanceof Error ? error.message : String(error));
+    }
 
   } catch (error) {
     console.error('\n❌ Error:', error instanceof Error ? error.message : String(error));
