@@ -1,0 +1,17 @@
+[
+  {
+    "name": "Test",
+    "date": "2026-01-16",
+    "startTime": "1830",
+    "endTime": "2045",
+    "courts": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "active": true,
+    "created": "2026-01-14T16:30:37.297Z",
+    "id": "mke8lss1uimpfjv2sam"
+  }
+]

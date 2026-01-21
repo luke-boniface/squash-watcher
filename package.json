@@ -6,12 +6,18 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "dry-run": "ts-node src/dry-run.ts",
+    "dev": "next dev",
+    "monitor": "ts-node --project tsconfig.backend.json src/index.ts",
+    "dry-run": "ts-node --project tsconfig.backend.json src/dry-run.ts",
     "clean": "rm -rf dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["playwright", "telegram", "monitoring", "website-watcher"],
+  "keywords": [
+    "playwright",
+    "telegram",
+    "monitoring",
+    "website-watcher"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -22,6 +28,11 @@
   "devDependencies": {
     "@types/node": "^24.10.0",
     "@types/node-telegram-bot-api": "^0.64.12",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "next": "^16.0.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   }

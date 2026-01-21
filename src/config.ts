@@ -48,9 +48,6 @@ export function loadConfig(): Config {
     if (!facilityId) {
       throw new Error('FACILITY_ID is required when API_ENABLED=true');
     }
-    if (!courtIdsStr) {
-      throw new Error('COURT_IDS is required when API_ENABLED=true');
-    }
   }
 
   // Parse court IDs (comma-separated)

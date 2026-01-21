@@ -4,6 +4,9 @@ import { WebsiteChecker } from './websiteChecker';
 import { defaultConditionChecker } from './conditions';
 import { StateManager } from './stateManager';
 import { createCourtAvailabilityChecker } from './courtConditions';
+import { createAlertChecker } from './alertManager';
+import { DebugLogger } from './debugLogger';
+import { getActiveAlerts } from '../lib/storage';
 
 async function main() {
   console.log('Starting Squash Watcher...');
@@ -21,6 +24,7 @@ async function main() {
   const notifier = new TelegramNotifier(config.telegramBotToken, config.telegramChatId);
   const checker = new WebsiteChecker();
   const stateManager = new StateManager();
+  const debugLogger = new DebugLogger();
 
   try {
     await checker.initialize();
@@ -38,6 +42,23 @@ async function main() {
     const performChecks = async () => {
       console.log(`\n[${new Date().toISOString()}] Performing checks...`);
 
+      // Get current alert count for debug logging
+      let alertCount = 0;
+      let activeAlertCount = 0;
+      try {
+        const allAlerts = await import('../lib/storage').then(m => m.loadAlerts());
+        const activeAlerts = await getActiveAlerts();
+        alertCount = allAlerts.length;
+        activeAlertCount = activeAlerts.length;
+      } catch (error) {
+        console.log('Could not load alerts for debug logging');
+      }
+
+      await debugLogger.logCheckStart(config, alertCount, activeAlertCount);
+
+      let websiteResult: any = null;
+      let apiResult: any = null;
+
       // Website monitoring (if enabled)
       if (config.targetUrl) {
         console.log('Checking website...');
@@ -46,6 +67,15 @@ async function main() {
           defaultConditionChecker,
           config.pageTimeout
         );
+
+        websiteResult = {
+          enabled: true,
+          url: config.targetUrl,
+          success: !result.error,
+          conditionMet: result.conditionMet,
+          message: result.message,
+          error: result.error
+        };
 
         if (result.error) {
           console.error('Website check failed:', result.error);
@@ -59,32 +89,50 @@ async function main() {
         }
       }
 
-      // API monitoring (if enabled)
+      // API monitoring (if enabled) - either legacy config or alert-based
       if (config.apiEnabled && config.facilityId) {
-        console.log('Checking court availability API...');
-        const courtChecker = createCourtAvailabilityChecker(
-          config.facilityId,
-          config.courtIds,
-          config.targetTimes,
-          config.daysToCheck,
-          stateManager
-        );
+        console.log('Checking court availability...');
+
+        // Use alert-based checker (reads from alerts.json)
+        const alertChecker = createAlertChecker(config.facilityId, stateManager);
 
         const result = await checker.checkWebsite(
           'https://www.eversports.de', // Dummy URL, actual URLs built in checker
-          courtChecker,
+          alertChecker,
           config.pageTimeout
         );
 
+        // Count slots found from the message
+        let slotsFound = 0;
+        if (result.conditionMet && result.message) {
+          const matches = result.message.match(/🎾/g);
+          slotsFound = matches ? matches.length : 0;
+        }
+
+        apiResult = {
+          enabled: true,
+          success: !result.error,
+          conditionMet: result.conditionMet,
+          slotsFound,
+          message: result.message,
+          error: result.error
+        };
+
         if (result.error) {
-          console.error('Court API check failed:', result.error);
+          console.error('Alert check failed:', result.error);
         } else if (result.conditionMet && result.message) {
           console.log('✅ Court slots available! Sending notification...');
           await notifier.sendMessageWithMarkdown(result.message);
         } else {
-          console.log('⏳ No new court slots available', result.message || '');
+          console.log('⏳', result.message || 'No new court slots available');
         }
       }
+
+      // Log the check results for debug console
+      await debugLogger.logCheckResults(
+        websiteResult || { enabled: false, success: false, conditionMet: false },
+        apiResult || { enabled: false, success: false, conditionMet: false, slotsFound: 0 }
+      );
     };
 
     // Run initial check
@@ -99,6 +147,7 @@ async function main() {
     const shutdown = async () => {
       console.log('\nShutting down...');
       clearInterval(intervalId);
+      await debugLogger.markStopped();
       await checker.close();
       try {
         await notifier.sendMessage('🛑 Squash Watcher stopped');
